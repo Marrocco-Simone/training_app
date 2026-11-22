@@ -1,0 +1,12 @@
+personal_data
+.DS_Store
+.gradle/
+.kotlin/
+build/
+local.properties
+builds/
+.idea/
+*.iml
+*.apk
+videos/
+documents/

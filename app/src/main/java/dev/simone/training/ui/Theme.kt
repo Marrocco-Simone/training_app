@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.simone.training.R
 import dev.simone.training.data.Category
+import dev.simone.training.data.STALE_DAYS
 
 val Iron = Color(0xFF0E0F11)
 val Plate = Color(0xFF17191C)
@@ -59,6 +60,10 @@ val GROUP_COLORS: Map<Category, Color> = mapOf(
 )
 
 fun categoryColor(category: Category?): Color = GROUP_COLORS[category] ?: Faint
+
+fun strengthDaysColor(days: Long?): Color = if (days != null && days >= STALE_DAYS) Warn else Chalk
+
+fun runDaysColor(days: Long?): Color = if (days != null && days >= STALE_DAYS) Faint else RunTeal
 
 private val Display = FontFamily(
     Font(R.font.barlowcondensed_semibold, FontWeight.SemiBold),

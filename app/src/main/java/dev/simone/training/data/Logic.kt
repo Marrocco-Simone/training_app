@@ -1,5 +1,6 @@
 package dev.simone.training.data
 
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import java.util.Locale
@@ -8,6 +9,8 @@ const val LEVEL_WINDOW_DAYS = 28
 const val DEFAULT_TOP_REPS = 7
 const val DEFAULT_SETS = 3
 const val STALE_DAYS = 7
+const val HEAT_WEEKS = 16
+private const val LEVEL_SCALE = 12.0
 
 val GROUPS: List<Category> = Category.entries.filter { it.isGroup }
 
@@ -98,6 +101,17 @@ fun groupLevels(data: TrainingData, standards: Standards?, from: LocalDate, to: 
         }
     }
 }
+
+/** [known] is the newest level of the last year; [current] is null when the group has no item in the last window. */
+data class GroupLevel(val current: Double?, val known: Double?)
+
+fun currentLevels(data: TrainingData, standards: Standards?, today: LocalDate): Map<Category, GroupLevel> =
+    groupLevels(data, standards, today.minusDays(364), today).mapValues { (_, series) ->
+        val current = series.last()
+        GroupLevel(current, current ?: series.lastOrNull { it != null })
+    }
+
+fun levelFraction(level: Double): Float = (level / LEVEL_SCALE).toFloat().coerceIn(0.02f, 1f)
 
 enum class Measure(val unit: String) { ONE_RM("kg e1RM"), REPS("reps"), SECONDS("s") }
 
@@ -244,6 +258,27 @@ fun blockText(data: TrainingData, block: Block, withSets: Boolean = false): Stri
 
 fun latestSession(data: TrainingData): Session? =
     data.sessions.maxWithOrNull(compareBy<Session> { it.date }.thenBy { it.id })
+
+fun latestRun(data: TrainingData): Run? = data.runs.maxByOrNull { it.startedAt }
+
+fun nextWarmup(data: TrainingData, last: Session): Warmup? =
+    data.settings.warmups.firstOrNull { it.id == last.warmup } ?: data.settings.warmups.firstOrNull()
+
+/** The non-warmup exercises of [last], each with the suggestion text for [today]. */
+fun nextSessionRows(data: TrainingData, last: Session, today: LocalDate): List<Pair<String, String?>> {
+    val index = occurrences(data.sessions)
+    return last.blocks.flatMap { it.items }
+        .filter { data.exerciseById[it.exerciseId]?.role != Role.WARMUP }
+        .map { it.exerciseId }.distinct()
+        .map { id -> id to suggestion(previousOccurrence(index, id, today, ""), data.exerciseById[id], today)?.text?.takeUnless { it.endsWith(": ") } }
+}
+
+/** Monday of the first of the [HEAT_WEEKS] weeks that end with the week of [today]. */
+fun heatmapStart(today: LocalDate): LocalDate = today.with(DayOfWeek.MONDAY).minusWeeks(HEAT_WEEKS - 1L)
+
+fun strengthDays(sessions: List<Session>, from: LocalDate): Set<LocalDate> = sessions.map { it.date }.filter { it >= from }.toSet()
+
+fun runDays(runs: List<Run>, from: LocalDate): Set<LocalDate> = runs.map { it.startedAt.toLocalDate() }.filter { it >= from }.toSet()
 
 fun newSessionId(data: TrainingData, date: LocalDate): String {
     val taken = data.sessions.map { it.id }.toSet()

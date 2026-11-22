@@ -1,5 +1,6 @@
 package dev.simone.training.data
 
+import android.content.res.AssetManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -14,6 +15,9 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 const val FORMAT_VERSION = 1
+const val DATA_FILE = "data.json"
+private const val CATALOG_FILE = "exercises.json"
+private const val STANDARDS_FILE = "levels.json"
 
 private val OFFSET_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX")
 
@@ -239,6 +243,14 @@ fun serializeData(data: TrainingData, exportedAt: Instant?): String {
     root.put("runs", data.runs.toJson(::writeRun))
     return root.toString(1)
 }
+
+fun readCatalog(assets: AssetManager): List<Exercise> =
+    if (CATALOG_FILE in assets.list("").orEmpty()) assets.open(CATALOG_FILE).bufferedReader().use { parseData(it.readText()).exercises }
+    else emptyList()
+
+fun readStandards(assets: AssetManager): Standards? =
+    if (STANDARDS_FILE in assets.list("").orEmpty()) assets.open(STANDARDS_FILE).bufferedReader().use { parseStandards(it.readText()) }
+    else null
 
 fun readDataFile(file: File): TrainingData =
     if (file.exists()) parseData(file.readText()) else TrainingData.EMPTY

@@ -38,7 +38,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.simone.training.data.GROUPS
-import dev.simone.training.data.Role
+import dev.simone.training.data.HEAT_WEEKS
 import dev.simone.training.data.Run
 import dev.simone.training.data.STALE_DAYS
 import dev.simone.training.data.Session
@@ -46,21 +46,22 @@ import dev.simone.training.data.Settings
 import dev.simone.training.data.Standards
 import dev.simone.training.data.TrainingData
 import dev.simone.training.data.blockText
+import dev.simone.training.data.currentLevels
 import dev.simone.training.data.daysBetween
 import dev.simone.training.data.exerciseName
-import dev.simone.training.data.groupLevels
+import dev.simone.training.data.heatmapStart
+import dev.simone.training.data.latestRun
 import dev.simone.training.data.latestSession
-import dev.simone.training.data.occurrences
-import dev.simone.training.data.previousOccurrence
-import dev.simone.training.data.suggestion
-import java.time.DayOfWeek
+import dev.simone.training.data.levelFraction
+import dev.simone.training.data.nextSessionRows
+import dev.simone.training.data.nextWarmup
+import dev.simone.training.data.runDays
+import dev.simone.training.data.strengthDays
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private const val HEAT_WEEKS = 16
-private const val LEVEL_SCALE = 12.0
 private val SHORT_MONTH: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM", Locale.getDefault())
 
 @Composable
@@ -82,7 +83,7 @@ fun TodayScreen(
 ) {
     val today = LocalDate.now()
     val last = latestSession(data)
-    val lastRun = data.runs.maxByOrNull { it.startedAt }
+    val lastRun = latestRun(data)
     val sinceSession = last?.let { daysBetween(it.date, today) }
     val sinceRun = lastRun?.let { daysBetween(it.startedAt.toLocalDate(), today) }
     val stale = sinceSession != null && sinceSession >= STALE_DAYS
@@ -91,8 +92,8 @@ fun TodayScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(Modifier.padding(horizontal = 4.dp)) {
-            BigStat(sinceSession?.toString() ?: "–", "days since strength", if (stale) Warn else Chalk, Modifier.weight(1f))
-            BigStat(sinceRun?.toString() ?: "–", "days since run", if (sinceRun != null && sinceRun >= STALE_DAYS) Faint else RunTeal, Modifier.weight(1f))
+            BigStat(sinceSession?.toString() ?: "–", "days since strength", strengthDaysColor(sinceSession), Modifier.weight(1f))
+            BigStat(sinceRun?.toString() ?: "–", "days since run", runDaysColor(sinceRun), Modifier.weight(1f))
         }
         if (stale && last != null) {
             Panel(accent = Warn, onClick = { onOpenSession(last) }) {
@@ -114,25 +115,19 @@ private fun ActionRow(text: String, onClick: () -> Unit) = Slab(text, onClick, M
 
 @Composable
 private fun NextSession(data: TrainingData, last: Session, today: LocalDate, onStart: () -> Unit) {
-    val index = remember(data.sessions) { occurrences(data.sessions) }
-    val rows = remember(data, today) {
-        last.blocks.flatMap { it.items }
-            .filter { data.exerciseById[it.exerciseId]?.role != Role.WARMUP }
-            .map { it.exerciseId }.distinct()
-            .map { id -> id to suggestion(previousOccurrence(index, id, today, ""), data.exerciseById[id], today) }
-    }
-    val warmup = data.settings.warmups.firstOrNull { it.id == last.warmup } ?: data.settings.warmups.firstOrNull()
+    val rows = remember(data, today) { nextSessionRows(data, last, today) }
+    val warmup = nextWarmup(data, last)
     Panel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("Next session", Modifier.weight(1f))
             warmup?.let { Tag(it.name) }
         }
-        rows.forEach { (id, s) ->
+        rows.forEach { (id, text) ->
             Row(verticalAlignment = Alignment.Top) {
                 Box(Modifier.padding(top = 7.dp)) { Dot(categoryColor(data.exerciseById[id]?.category)) }
                 Column(Modifier.padding(start = 10.dp)) {
                     Text(exerciseName(data, id), style = MaterialTheme.typography.titleSmall)
-                    s?.text?.takeUnless { it.endsWith(": ") }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                    text?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                 }
             }
         }
@@ -143,9 +138,9 @@ private fun NextSession(data: TrainingData, last: Session, today: LocalDate, onS
 
 @Composable
 private fun Heatmap(data: TrainingData, today: LocalDate) {
-    val start = today.with(DayOfWeek.MONDAY).minusWeeks(HEAT_WEEKS - 1L)
-    val strength = remember(data.sessions, start) { data.sessions.map { it.date }.filter { it >= start }.toSet() }
-    val runs = remember(data.runs, start) { data.runs.map { it.startedAt.toLocalDate() }.filter { it >= start }.toSet() }
+    val start = heatmapStart(today)
+    val strength = remember(data.sessions, start) { strengthDays(data.sessions, start) }
+    val runs = remember(data.runs, start) { runDays(data.runs, start) }
     val measurer = rememberTextMeasurer()
     val labelStyle = MaterialTheme.typography.labelSmall.copy(color = Faint)
     Panel {
@@ -194,20 +189,18 @@ private fun Profile(settings: Settings, onSave: (Settings) -> Unit) {
 
 @Composable
 private fun Levels(data: TrainingData, standards: Standards?, today: LocalDate) {
-    val levels = remember(data, standards) { groupLevels(data, standards, today.minusDays(364), today) }
+    val levels = remember(data, standards) { currentLevels(data, standards, today) }
     Panel {
         SectionLabel("Level")
         GROUPS.forEach { group ->
-            val series = levels.getValue(group)
-            val current = series.last()
-            val known = current ?: series.lastOrNull { it != null }
+            val (current, known) = levels.getValue(group)
             val color = categoryColor(group)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(group.label, style = MaterialTheme.typography.bodyMedium, color = if (current != null) Chalk else Faint, modifier = Modifier.width(118.dp))
                 Box(Modifier.weight(1f).height(8.dp).clip(MaterialTheme.shapes.extraSmall).background(PlateHigh)) {
                     known?.let {
                         Box(
-                            Modifier.fillMaxHeight().fillMaxWidth((it / LEVEL_SCALE).toFloat().coerceIn(0.02f, 1f))
+                            Modifier.fillMaxHeight().fillMaxWidth(levelFraction(it))
                                 .background(if (current != null) color else color.copy(alpha = 0.3f)),
                         )
                     }

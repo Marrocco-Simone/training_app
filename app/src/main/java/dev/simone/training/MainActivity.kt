@@ -1,5 +1,6 @@
 package dev.simone.training
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -18,6 +19,21 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) handleIntent(intent)
         setContent { App(viewModel) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent) {
+        val fromRecents = intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
+        if (intent.action == ACTION_NEW_SESSION && !fromRecents) viewModel.openNewSession()
+    }
+
+    companion object {
+        const val ACTION_NEW_SESSION = "dev.simone.training.action.NEW_SESSION"
     }
 }

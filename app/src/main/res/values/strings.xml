@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Training</string>
+    <string name="widget_status">Training status</string>
+    <string name="widget_next_session">Next session</string>
+    <string name="widget_levels">Levels</string>
 </resources>
